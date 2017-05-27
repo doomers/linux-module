@@ -4,10 +4,10 @@
 
 int init_module(void){
 
-	static int n = 5;
+	static int n = 8;
 	static int i =1;
 	static int prime =0;
-	for( i=2; i< n/2;i++)if(n%i==0){
+	for( i=2; i<=n/2;i++)if(n%i==0){
 		prime =1;
 	    break;}
 
