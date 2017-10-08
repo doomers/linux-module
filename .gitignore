@@ -7,3 +7,4 @@
 *.symvers
 *.order
 .*
+.tmp_versions
