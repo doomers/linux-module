@@ -1,76 +1,123 @@
-#include < linux/module.h >	
-#include <linux/kernel.h>	
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/slab.h>
+#include <linux/string.h>
+#include <linux/timer.h>
+#include <linux/major.h>
+#include <linux/fs.h>
+#include <linux/err.h>
+#include <linux/ioctl.h>
+#include <linux/init.h>
 #include <linux/proc_fs.h>
+#include <asm-generic/uaccess.h>
+#include <linux/types.h>
+#include <linux/bug.h>
+#include <linux/io.h>
+#include <asm/page.h>
+
+
+
+#ifndef __GFP_WAIT
+#define __GFP_WAIT __GFP_RECLAIM
+#endif
+
+#ifndef GFP_IOFS
+#define GFP_IOFS STP_ALLOC_FLAGS
+#endif
 
 #ifdef CONFIG_PROC_FS
 
-#define procfs_name "procfs_hello_world"
 #define procfs_msg "Hello World\n"
+#define procfs_name "procfs_hello_world"
+#define procfs_perms 0644
+#define procfs_parent NULL
 
-struct proc_dir_entry *my_pFile;
+static struct file_operations procfs_fops;
+static char    *message;
+static int	read_p;
 
-static int
-pfs_hw_read(char *page,
-	    char **start,
-	    off_t off, int buffer_length, int *eof, void *data)
+
+static		ssize_t
+pfs_hw_read(struct file *file,
+	    char __user * buf, size_t count, loff_t * offp)
 {
-	int		ret;
+	ssize_t		len = strlen(message);
 
-	if (off > 0) {
-		ret = 0;
-	} else {
-		/* totally ignore the size of the buffer */
-		ret = sprintf(page, procfs_msg);
+	read_p = !read_p;
+	if (read_p) {
+		return 0;
 	}
+	printk("proc called read %ld\n", count);
+	printk("proc called len %ld\n", len);
+	printk("about to copy %s\n", message);
 
-	return ret;
+	/*
+	 * should be len instead of 0, but that causes an oops
+	 */
+
+	/* @todo figure out why copy_to_user so upset wich nonzero */
+	copy_to_user(buf, message, 0);
+
+	return 0;
 }
 
 static int
-pfs_hw_create_entry()
+pfs_hw_open(struct inode *sp_inode, struct file *sp_file)
 {
-	my_pFile = create_proc_entry(procfs_name, 0644, NULL);
+	printk("proc called open\n");
 
-	if (my_pFile == NULL) {
-		remove_proc_entry(procfs_name, &proc_root);
-		printk(KERN_ALERT "Error creating:/proc/%s\n", procfs_name);
+	read_p = 1;
+
+	//message = kmalloc(sizeof(char) * 1024, __GFP_WAIT | __GFP_IO | __GFP_FS);
+	message = kmalloc(1024, GFP_KERNEL);
+
+	if (message == NULL) {
+		printk("ERROR, pfs_hw_init");
 		return -ENOMEM;
 	}
-	my_pFile->read_proc = procfile_read;
-	my_pFile->owner = THIS_MODULE;
-	my_pFile->mode = S_IFREG | S_IRUGO;
-	my_pFile->uid = 0;
-	my_pFile->gid = 0;
-	my_pFile->size = 37;
+	strcpy(message, procfs_msg);
+	return 0;
+}
 
+static int
+pfs_hw_release(struct inode *sp_inode, struct file *sp_file)
+{
+	printk("proc called release\n");
+	kfree(message);
 	return 0;
 
 }
 
 
-static int	__init
-pfs_hw_init()
+static __init int
+pfs_hw_create_entry(void)
 {
-	int		ret_val;
+	printk("/proc/%s create\n", procfs_name);
+	/* procfs_fops.owner = THIS_MODULE; */
+	procfs_fops.open = pfs_hw_open;
+	procfs_fops.read = pfs_hw_read;
+	procfs_fops.release = pfs_hw_release;
 
-	ret_val = pfs_hw_create_entry();
-	return ret_val;
+	if (!proc_create(procfs_name, procfs_perms, procfs_parent, &procfs_fops)) {
+		printk(KERN_ALERT "Error creating:/proc/%s\n", procfs_name);
+		remove_proc_entry(procfs_name, procfs_parent);
+		return -ENOMEM;
+	}
+	return 0;
 }
 
 static void	__exit
-pfs_hw_exit()
+pfs_hw_exit(void)
 {
-	remove_proc_entry(procfs_name, &proc_root);
+	remove_proc_entry(procfs_name, procfs_parent);
 	printk(KERN_INFO "/proc/%s removed\n", procfs_name);
 }
 
-module_init(pfs_hw_init)
-module_exit(pfs_hw_exit)
+module_init(pfs_hw_create_entry);
+module_exit(pfs_hw_exit);
 #else
 #error "Set CONFIG_PROC_FS=y in you .config"
 #endif				/* CONFIG_PROC_FS */
 
 MODULE_AUTHOR("d-grossman");
 MODULE_DESCRIPTION("procfs hello world");
-
-MODULE_LICENSE("GPL");
